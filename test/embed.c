@@ -27,12 +27,17 @@
 #ifndef _WIN32
 #include <unistd.h>
 #endif
+#include <signal.h>
 
 #include "mongoose.h"
 
 #if !defined(LISTENING_PORT)
 #define LISTENING_PORT "23456"
 #endif
+
+static void signal_handler(int sig_num) {
+  // Just let pause() stop.
+}
 
 static const char *standard_reply = "HTTP/1.1 200 OK\r\n"
   "Content-Type: text/plain\r\n"
@@ -175,7 +180,13 @@ int main(void) {
   struct mg_context *ctx;
   const char *options[] = {"listening_ports", LISTENING_PORT, NULL};
 
+  /* Setup signal handler: quit on Ctrl-C */
+  signal(SIGTERM, signal_handler);
+  signal(SIGINT, signal_handler);
+
   ctx = mg_start(callback, NULL, options);
   pause();
+  printf("Stopping embed.\n");
+  mg_stop(ctx);
   return 0;
 }
