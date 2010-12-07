@@ -3840,6 +3840,7 @@ static void process_new_connection(struct mg_connection *conn) {
     }
     // conn->peer is not NULL only for SSL-ed proxy connections
   } while (conn->peer || (keep_alive_enabled && should_keep_alive(conn)));
+  reset_per_request_attributes(conn);
 }
 
 // Worker threads take accepted socket from the queue
