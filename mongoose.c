@@ -455,6 +455,7 @@ struct mg_connection {
   int buf_size;               // Buffer size
   int request_len;            // Size of the request + headers in a buffer
   int data_len;               // Total size of data in a buffer
+  char *auth_header;          // Buffer for the Authorization header (request_info.ah points into it).
 };
 
 const char **mg_get_valid_option_names(void) {
@@ -2069,13 +2070,7 @@ static FILE *open_auth_file(struct mg_connection *conn, const char *path) {
   return fp;
 }
 
-// Parsed Authorization header
-struct ah {
-  char *user, *uri, *cnonce, *response, *qop, *nc, *nonce;
-};
-
-static int parse_auth_header(struct mg_connection *conn, char *buf,
-                             size_t buf_size, struct ah *ah) {
+static int parse_auth_header(struct mg_connection *conn) {
   char *name, *value, *s;
   const char *auth_header;
 
@@ -2085,10 +2080,10 @@ static int parse_auth_header(struct mg_connection *conn, char *buf,
   }
 
   // Make modifiable copy of the auth header
-  (void) mg_strlcpy(buf, auth_header + 7, buf_size);
+  conn->auth_header = mg_strdup(auth_header + 7);
+  s = conn->auth_header;
 
-  s = buf;
-  (void) memset(ah, 0, sizeof(*ah));
+  conn->request_info.ah = calloc(1, sizeof(struct mg_auth_header));
 
   // Parse authorization header
   for (;;) {
@@ -2114,25 +2109,25 @@ static int parse_auth_header(struct mg_connection *conn, char *buf,
     }
 
     if (!strcmp(name, "username")) {
-      ah->user = value;
+      conn->request_info.ah->user = value;
     } else if (!strcmp(name, "cnonce")) {
-      ah->cnonce = value;
+      conn->request_info.ah->cnonce = value;
     } else if (!strcmp(name, "response")) {
-      ah->response = value;
+      conn->request_info.ah->response = value;
     } else if (!strcmp(name, "uri")) {
-      ah->uri = value;
+      conn->request_info.ah->uri = value;
     } else if (!strcmp(name, "qop")) {
-      ah->qop = value;
+      conn->request_info.ah->qop = value;
     } else if (!strcmp(name, "nc")) {
-      ah->nc = value;
+      conn->request_info.ah->nc = value;
     } else if (!strcmp(name, "nonce")) {
-      ah->nonce = value;
+      conn->request_info.ah->nonce = value;
     }
   }
 
   // CGI needs it as REMOTE_USER
-  if (ah->user != NULL) {
-    conn->request_info.remote_user = mg_strdup(ah->user);
+  if (conn->request_info.ah->user != NULL) {
+    conn->request_info.remote_user = mg_strdup(conn->request_info.ah->user);
   } else {
     return 0;
   }
@@ -2142,10 +2137,9 @@ static int parse_auth_header(struct mg_connection *conn, char *buf,
 
 // Authorize against the opened passwords file. Return 1 if authorized.
 static int authorize(struct mg_connection *conn, FILE *fp) {
-  struct ah ah;
-  char line[256], f_user[256], ha1[256], f_domain[256], buf[BUFSIZ];
+  char line[256], f_user[256], ha1[256], f_domain[256];
 
-  if (!parse_auth_header(conn, buf, sizeof(buf), &ah)) {
+  if (!parse_auth_header(conn)) {
     return 0;
   }
 
@@ -2155,12 +2149,13 @@ static int authorize(struct mg_connection *conn, FILE *fp) {
       continue;
     }
 
-    if (!strcmp(ah.user, f_user) &&
+    if (!strcmp(conn->request_info.ah->user, f_user) &&
         !strcmp(conn->ctx->config[AUTHENTICATION_DOMAIN], f_domain))
       return check_password(
             conn->request_info.request_method,
-            ha1, ah.uri, ah.nonce, ah.nc, ah.cnonce, ah.qop,
-            ah.response);
+            ha1, conn->request_info.ah->uri, conn->request_info.ah->nonce,
+            conn->request_info.ah->nc, conn->request_info.ah->cnonce, conn->request_info.ah->qop,
+            conn->request_info.ah->response);
   }
 
   return 0;
@@ -3641,10 +3636,24 @@ static void reset_per_request_attributes(struct mg_connection *conn) {
   if (ri->remote_user != NULL) {
     free((void *) ri->remote_user);
   }
+  if (ri->ah != NULL) {
+    if (ri->ah->ha1 != NULL) {
+      free((void *) ri->ah->ha1);
+    }
+    if (ri->ah->expected_response != NULL) {
+      free((void *) ri->ah->expected_response);
+    }
+    free((void *) ri->ah);
+  }
   ri->remote_user = ri->request_method = ri->uri = ri->http_version = NULL;
+  ri->ah = NULL;
   ri->num_headers = 0;
   ri->status_code = -1;
 
+  if (conn->auth_header != NULL) {
+    free((void *) conn->auth_header);
+  }
+  conn->auth_header = NULL;
   conn->num_bytes_sent = conn->consumed_content = 0;
   conn->content_len = -1;
   conn->request_len = conn->data_len = 0;
