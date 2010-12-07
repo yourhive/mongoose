@@ -2201,14 +2201,18 @@ static int check_authorization(struct mg_connection *conn, const char *path) {
   return authorized;
 }
 
-static void send_authorization_request(struct mg_connection *conn) {
+void mg_send_authorization_request(struct mg_connection *conn, const char *nonce) {
   conn->request_info.status_code = 401;
   (void) mg_printf(conn,
       "HTTP/1.1 401 Unauthorized\r\n"
       "WWW-Authenticate: Digest qop=\"auth\", "
-      "realm=\"%s\", nonce=\"%lu\"\r\n\r\n",
-      conn->ctx->config[AUTHENTICATION_DOMAIN],
-      (unsigned long) time(NULL));
+      "realm=\"%s\", nonce=\"",
+      conn->ctx->config[AUTHENTICATION_DOMAIN]);
+  if (nonce == NULL)
+    (void) mg_printf(conn, "%lu", (unsigned long) time(NULL));
+  else
+    (void) mg_printf(conn, "%s", nonce);
+  (void) mg_printf(conn, "\"\r\n\r\n");
 }
 
 static int is_authorized_for_put(struct mg_connection *conn) {
@@ -3228,7 +3232,7 @@ static void handle_request(struct mg_connection *conn) {
 
   DEBUG_TRACE(("%s", ri->uri));
   if (!check_authorization(conn, path)) {
-    send_authorization_request(conn);
+    mg_send_authorization_request(conn, NULL);
   } else if (call_user(conn, MG_NEW_REQUEST) != NULL) {
     // Do nothing, callback has served the request
   } else if (strstr(path, PASSWORDS_FILE_NAME)) {
@@ -3240,7 +3244,7 @@ static void handle_request(struct mg_connection *conn) {
         !strcmp(ri->request_method, "DELETE")) &&
       (conn->ctx->config[PUT_DELETE_PASSWORDS_FILE] == NULL ||
        !is_authorized_for_put(conn))) {
-    send_authorization_request(conn);
+    mg_send_authorization_request(conn, NULL);
   } else if (!strcmp(ri->request_method, "PUT")) {
     put_file(conn, path);
   } else if (!strcmp(ri->request_method, "DELETE")) {
