@@ -2012,30 +2012,30 @@ void mg_md5(char *buf, ...) {
 
 // Check the user's password, return 1 if OK
 static int check_password(const char *method, const char *ha1, const char *uri,
-                          const char *nonce, const char *nc, const char *cnonce,
-                          const char *qop, const char *response) {
+                          const struct mg_auth_header *ah) {
   char ha2[32 + 1], expected_response[32 + 1];
 
   // Some of the parameters may be NULL
-  if (method == NULL || nonce == NULL || nc == NULL || cnonce == NULL || 
-      qop == NULL || response == NULL) {
+  if (method == NULL || ah == NULL || ah->nonce == NULL || ah->nc == NULL ||
+      ah->cnonce == NULL || ah->qop == NULL || ah->uri == NULL ||
+      ah->response == NULL) {
     return 0;
   }
 
   // NOTE(lsm): due to a bug in MSIE, we do not compare the URI
   // TODO(lsm): check for authentication timeout
-  if (// strcmp(dig->uri, c->ouri) != 0 ||
-      strlen(response) != 32
-      // || now - strtoul(dig->nonce, NULL, 10) > 3600
+  if (// strcmp(ah->uri, uri) != 0 ||
+      strlen(ah->response) != 32
+      // || now - strtoul(ah->nonce, NULL, 10) > 3600
       ) {
     return 0;
   }
 
-  mg_md5(ha2, method, ":", uri, NULL);
-  mg_md5(expected_response, ha1, ":", nonce, ":", nc,
-      ":", cnonce, ":", qop, ":", ha2, NULL);
+  mg_md5(ha2, method, ":", ah->uri, NULL);
+  mg_md5(expected_response, ha1, ":", ah->nonce, ":", ah->nc,
+      ":", ah->cnonce, ":", ah->qop, ":", ha2, NULL);
 
-  return mg_strcasecmp(response, expected_response) == 0;
+  return mg_strcasecmp(ah->response, expected_response) == 0;
 }
 
 // Use the global passwords file, if specified by auth_gpass option,
@@ -2152,11 +2152,8 @@ static int authorize(struct mg_connection *conn, FILE *fp) {
 
     if (!strcmp(conn->request_info.ah->user, f_user) &&
         !strcmp(conn->ctx->config[AUTHENTICATION_DOMAIN], f_domain))
-      return check_password(
-            conn->request_info.request_method,
-            ha1, conn->request_info.ah->uri, conn->request_info.ah->nonce,
-            conn->request_info.ah->nc, conn->request_info.ah->cnonce, conn->request_info.ah->qop,
-            conn->request_info.ah->response);
+      return check_password(conn->request_info.request_method, ha1,
+                            conn->request_info.uri, conn->request_info.ah);
   }
 
   return 0;
