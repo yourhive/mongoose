@@ -23,6 +23,8 @@ my $exe = '.' . $dir_separator . 'mongoose';
 my $embed_exe = '.' . $dir_separator . 'embed';
 my $unit_test_exe = '.' . $dir_separator . 'unit_test';
 my $exit_code = 0;
+my $valgrind = $ENV{'VALGRIND'};
+$valgrind = '' unless !on_windows() && defined($valgrind);
 
 my @files_to_delete = ('debug.log', 'access.log', $config, "$root/put.txt",
   "$root/a+.txt", "$root/.htpasswd", "$root/binary_file",
@@ -101,11 +103,11 @@ sub spawn {
     die "Cannot spawn @_: $!" unless $pid;
   } else {
     unless ($pid = fork()) {
-      exec $cmdline;
-      die "cannot exec [$cmdline]: $!\n";
+      exec "$valgrind " . $cmdline;
+      die "cannot exec [$valgrind $cmdline]: $!\n";
     }
   }
-  sleep 1;
+  sleep ($valgrind ? 5 : 1);
 }
 
 sub write_file {
@@ -125,7 +127,7 @@ sub read_file {
 sub kill_spawned_child {
   if (defined($pid)) {
     kill(15, $pid);
-    sleep 2;
+    sleep ($valgrind ? 4 : 1);
     kill(9, $pid);
     waitpid($pid, 0);
   }
@@ -185,13 +187,15 @@ o("GET /%68%65%6c%6c%6f%2e%74%78%74 HTTP/1.0\n\n",
 # Break CGI reading after 1 second. We must get full output.
 # Since CGI script does sleep, we sleep as well and increase request count
 # manually.
-my $slow_cgi_reply;
-print "==> Slow CGI output ... ";
-fail('Slow CGI output forward reply=', $slow_cgi_reply) unless
-  ($slow_cgi_reply = req("GET /timeout.cgi HTTP/1.0\r\n\r\n", 0, 1)) =~ /Some data/s;
-print "OK\n";
-sleep 3;
-$num_requests++;
+if (!$valgrind) {  # valgrind makes things too slow for the timings to work out.
+  my $slow_cgi_reply;
+  print "==> Slow CGI output ... ";
+  fail('Slow CGI output forward reply=', $slow_cgi_reply) unless
+    ($slow_cgi_reply = req("GET /timeout.cgi HTTP/1.0\r\n\r\n", 0, 1)) =~ /Some data/s;
+  print "OK\n";
+  sleep 3;
+  $num_requests++;
+}
 
 # '+' in URI must not be URL-decoded to space
 write_file("$root/a+.txt", '');
