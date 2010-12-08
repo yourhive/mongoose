@@ -146,6 +146,20 @@ static void test_post(struct mg_connection *conn,
   }
 }
 
+static void test_auth(struct mg_connection *conn,
+                      const struct mg_request_info *ri) {
+  if (ri->ah != NULL &&
+      ri->ah->user != NULL &&
+      !strcmp(ri->ah->user, "testuser")) {
+    char *buf = malloc(33);
+    /* ha1 = md5 ("testuser:testdomain:testpass") */
+    strcpy(buf, "f8975e1e8d4012228981698a97707968");
+    ri->ah->ha1 = buf;
+  } else {
+    mg_send_authorization_request(conn, NULL);
+  }
+}
+
 static const struct test_config {
   enum mg_event event;
   const char *uri;
@@ -155,6 +169,8 @@ static const struct test_config {
   {MG_NEW_REQUEST, "/test_get_var", &test_get_var},
   {MG_NEW_REQUEST, "/test_get_request_info", &test_get_request_info},
   {MG_NEW_REQUEST, "/test_post", &test_post},
+  {MG_AUTHENTICATE, "/test_auth", &test_auth},
+  {MG_NEW_REQUEST, "/test_auth", &test_get_header},
   {MG_HTTP_ERROR, "", &test_error},
   {0, NULL, NULL}
 };

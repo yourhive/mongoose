@@ -481,6 +481,22 @@ sub do_embedded_test {
 #	o("GET /foo/secret HTTP/1.0\nAuthorization: Digest username=joe\n\n",
 #		'200 OK', 'mg_protect_uri (joe)', 0);
 
+  o("GET /test_auth HTTP/1.1\n".
+    "Host: auth\n\n",
+    'Error: \[401\]', 'mg_auth 1', 0);
+  o("GET /test_auth HTTP/1.1\n".
+    "Authorization: Digest  username=testuser, ".
+    "realm=testdomain, nonce=1, nc=1, cnonce=xxx, uri=/test_auth, ".
+    "qop=auth, response=4543a223202da76106c612c9981d3a01\n" .
+    "Host: auth\n\n",
+    'Value: \[auth\]', 'mg_auth 2', 0);
+  o("GET /test_auth HTTP/1.1\n".
+    "Authorization: Digest  username=testuser, ".
+    "realm=testdomain2, nonce=1, nc=1, cnonce=xxx, uri=/test_auth, ".
+    "qop=auth, response=36c02e2b0a25994c898395cb74328915\n" .
+    "Host: auth\n\n",
+    'Error: \[401\]', 'mg_auth 3', 0);
+
   kill_spawned_child();
 }
 
