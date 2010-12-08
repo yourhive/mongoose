@@ -2011,12 +2011,13 @@ void mg_md5(char *buf, ...) {
 }
 
 // Check the user's password, return 1 if OK
-static int check_password(const char *method, const char *ha1, const char *uri,
-                          const struct mg_auth_header *ah) {
+static int check_password(struct mg_connection *conn) {
   char ha2[32 + 1], expected_response[32 + 1];
+  struct mg_auth_header *ah = conn->request_info.ah;
 
   // Some of the parameters may be NULL
-  if (method == NULL || ah == NULL || ah->nonce == NULL || ah->nc == NULL ||
+  if (conn->request_info.request_method == NULL || ah == NULL ||
+      ah->nonce == NULL || ah->nc == NULL ||
       ah->cnonce == NULL || ah->qop == NULL || ah->uri == NULL ||
       ah->response == NULL) {
     return 0;
@@ -2024,15 +2025,15 @@ static int check_password(const char *method, const char *ha1, const char *uri,
 
   // NOTE(lsm): due to a bug in MSIE, we do not compare the URI
   // TODO(lsm): check for authentication timeout
-  if (// strcmp(ah->uri, uri) != 0 ||
+  if (// strcmp(ah->uri, conn->request_info.uri) != 0 ||
       strlen(ah->response) != 32
       // || now - strtoul(ah->nonce, NULL, 10) > 3600
       ) {
     return 0;
   }
 
-  mg_md5(ha2, method, ":", ah->uri, NULL);
-  mg_md5(expected_response, ha1, ":", ah->nonce, ":", ah->nc,
+  mg_md5(ha2, conn->request_info.request_method, ":", ah->uri, NULL);
+  mg_md5(expected_response, ah->ha1, ":", ah->nonce, ":", ah->nc,
       ":", ah->cnonce, ":", ah->qop, ":", ha2, NULL);
 
   return mg_strcasecmp(ah->response, expected_response) == 0;
@@ -2138,7 +2139,7 @@ static void parse_auth_header(struct mg_connection *conn) {
 }
 
 // Authorize against the opened passwords file. Return 1 if authorized.
-static int authorize(struct mg_connection *conn, FILE *fp) {
+static int authorize_from_file(struct mg_connection *conn, FILE *fp) {
   char line[256], f_user[256], ha1[256], f_domain[256];
 
   if (conn->request_info.ah == NULL)
@@ -2151,9 +2152,10 @@ static int authorize(struct mg_connection *conn, FILE *fp) {
     }
 
     if (!strcmp(conn->request_info.ah->user, f_user) &&
-        !strcmp(conn->ctx->config[AUTHENTICATION_DOMAIN], f_domain))
-      return check_password(conn->request_info.request_method, ha1,
-                            conn->request_info.uri, conn->request_info.ah);
+        !strcmp(conn->ctx->config[AUTHENTICATION_DOMAIN], f_domain)) {
+      conn->request_info.ah->ha1 = mg_strdup(ha1);
+      return check_password(conn);
+    }
   }
 
   return 0;
@@ -2166,6 +2168,12 @@ static int check_authorization(struct mg_connection *conn, const char *path) {
   struct vec uri_vec, filename_vec;
   const char *list;
   int authorized;
+
+  /* Check for embedded authentication first */
+  if (conn->request_info.ah != NULL &&
+      conn->request_info.ah->ha1 != NULL) {
+    return check_password(conn);
+  }
 
   fp = NULL;
   authorized = 1;
@@ -2187,7 +2195,7 @@ static int check_authorization(struct mg_connection *conn, const char *path) {
   }
 
   if (fp != NULL) {
-    authorized = authorize(conn, fp);
+    authorized = authorize_from_file(conn, fp);
     (void) fclose(fp);
   }
 
@@ -2212,11 +2220,13 @@ static int is_authorized_for_put(struct mg_connection *conn) {
   FILE *fp;
   int ret = 0;
 
+  /* No need to check for embedded authentication here: we already passed
+   * check_authorization() */
   fp = conn->ctx->config[PUT_DELETE_PASSWORDS_FILE] == NULL ? NULL :
     mg_fopen(conn->ctx->config[PUT_DELETE_PASSWORDS_FILE], "r");
 
   if (fp != NULL) {
-    ret = authorize(conn, fp);
+    ret = authorize_from_file(conn, fp);
     (void) fclose(fp);
   }
 
@@ -3227,7 +3237,9 @@ static void handle_request(struct mg_connection *conn) {
 
   parse_auth_header(conn);
 
-  if (!check_authorization(conn, path)) {
+  if (call_user(conn, MG_AUTHENTICATE) != NULL) {
+    // Do nothing, callback has served the request
+  } else if (!check_authorization(conn, path)) {
     mg_send_authorization_request(conn, NULL);
   } else if (call_user(conn, MG_NEW_REQUEST) != NULL) {
     // Do nothing, callback has served the request

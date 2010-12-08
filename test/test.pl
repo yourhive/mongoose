@@ -483,7 +483,7 @@ sub do_embedded_test {
 
   o("GET /test_auth HTTP/1.1\n".
     "Host: auth\n\n",
-    'Error: \[401\]', 'mg_auth 1', 0);
+    '\[Unauthorized\]', 'mg_auth 1', 0);
   o("GET /test_auth HTTP/1.1\n".
     "Authorization: Digest  username=testuser, ".
     "realm=testdomain, nonce=1, nc=1, cnonce=xxx, uri=/test_auth, ".
@@ -495,7 +495,7 @@ sub do_embedded_test {
     "realm=testdomain2, nonce=1, nc=1, cnonce=xxx, uri=/test_auth, ".
     "qop=auth, response=36c02e2b0a25994c898395cb74328915\n" .
     "Host: auth\n\n",
-    'Error: \[401\]', 'mg_auth 3', 0);
+    'WWW-Authenticate: Digest', 'mg_auth 3', 0);
 
   kill_spawned_child();
 }

@@ -146,20 +146,6 @@ static void test_post(struct mg_connection *conn,
   }
 }
 
-static void test_auth(struct mg_connection *conn,
-                      const struct mg_request_info *ri) {
-  if (ri->ah != NULL &&
-      ri->ah->user != NULL &&
-      !strcmp(ri->ah->user, "testuser")) {
-    char *buf = malloc(33);
-    /* ha1 = md5 ("testuser:testdomain:testpass") */
-    strcpy(buf, "f8975e1e8d4012228981698a97707968");
-    ri->ah->ha1 = buf;
-  } else {
-    mg_send_authorization_request(conn, NULL);
-  }
-}
-
 static const struct test_config {
   enum mg_event event;
   const char *uri;
@@ -169,7 +155,6 @@ static const struct test_config {
   {MG_NEW_REQUEST, "/test_get_var", &test_get_var},
   {MG_NEW_REQUEST, "/test_get_request_info", &test_get_request_info},
   {MG_NEW_REQUEST, "/test_post", &test_post},
-  {MG_AUTHENTICATE, "/test_auth", &test_auth},
   {MG_NEW_REQUEST, "/test_auth", &test_get_header},
   {MG_HTTP_ERROR, "", &test_error},
   {0, NULL, NULL}
@@ -179,6 +164,23 @@ static void *callback(enum mg_event event,
                       struct mg_connection *conn,
                       const struct mg_request_info *request_info) {
   int i;
+
+  if (event == MG_AUTHENTICATE &&
+      !strcmp(request_info->uri, "/test_auth")) {
+    if (request_info->ah != NULL &&
+        request_info->ah->user != NULL &&
+        !strcmp(request_info->ah->user, "testuser")) {
+      char *buf = malloc(33);
+      /* ha1 = md5 ("testuser:testdomain:testpass") */
+      strcpy(buf, "f8975e1e8d4012228981698a97707968");
+      request_info->ah->ha1 = buf;
+      return NULL;
+    } else {
+      mg_printf(conn, "HTTP/1.1 401 Unauthorized\r\n\r\n");
+      mg_printf(conn, "[Unauthorized]");
+      return "processed";
+    }
+  }
 
   for (i = 0; test_config[i].uri != NULL; i++) {
     if (event == test_config[i].event &&
