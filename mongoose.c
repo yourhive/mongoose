@@ -2070,13 +2070,13 @@ static FILE *open_auth_file(struct mg_connection *conn, const char *path) {
   return fp;
 }
 
-static int parse_auth_header(struct mg_connection *conn) {
+static void parse_auth_header(struct mg_connection *conn) {
   char *name, *value, *s;
   const char *auth_header;
 
   if ((auth_header = mg_get_header(conn, "Authorization")) == NULL ||
       mg_strncasecmp(auth_header, "Digest ", 7) != 0) {
-    return 0;
+    return;
   }
 
   // Make modifiable copy of the auth header
@@ -2129,19 +2129,20 @@ static int parse_auth_header(struct mg_connection *conn) {
   if (conn->request_info.ah->user != NULL) {
     conn->request_info.remote_user = mg_strdup(conn->request_info.ah->user);
   } else {
-    return 0;
+    // Can't be valid; clean up
+    free(conn->request_info.ah);
+    conn->request_info.ah = NULL;
+    free(conn->auth_header);
+    conn->auth_header = NULL;
   }
-
-  return 1;
 }
 
 // Authorize against the opened passwords file. Return 1 if authorized.
 static int authorize(struct mg_connection *conn, FILE *fp) {
   char line[256], f_user[256], ha1[256], f_domain[256];
 
-  if (!parse_auth_header(conn)) {
+  if (conn->request_info.ah == NULL)
     return 0;
-  }
 
   // Loop over passwords file
   while (fgets(line, sizeof(line), fp) != NULL) {
@@ -3226,6 +3227,9 @@ static void handle_request(struct mg_connection *conn) {
   convert_uri_to_file_name(conn, ri->uri, path, sizeof(path));
 
   DEBUG_TRACE(("%s", ri->uri));
+
+  parse_auth_header(conn);
+
   if (!check_authorization(conn, path)) {
     mg_send_authorization_request(conn, NULL);
   } else if (call_user(conn, MG_NEW_REQUEST) != NULL) {
