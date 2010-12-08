@@ -124,6 +124,8 @@ sub read_file {
 
 sub kill_spawned_child {
   if (defined($pid)) {
+    kill(15, $pid);
+    sleep 2;
     kill(9, $pid);
     waitpid($pid, 0);
   }
