@@ -374,7 +374,7 @@ int main(void) {
   srand((unsigned) time(0));
 
   // Setup and start Mongoose
-  ctx = mg_start(&event_handler, NULL, options);
+  ctx = mg_start(&event_handler, options);
   assert(ctx != NULL);
 
   // Wait until enter is pressed, then exit
